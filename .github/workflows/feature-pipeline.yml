@@ -1,0 +1,120 @@
+name: Feature Pipeline - Hourly
+
+on:
+  schedule:
+    # Runs every hour at minute 0
+    - cron: '0 * * * *'
+  workflow_dispatch: # Manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - '.github/workflows/feature-pipeline.yml'
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  run-feature-pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create Environment File
+      run: |
+        cat << EOF > .env
+        HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}
+        HOPSWORKS_PROJECT_NAME=${{ secrets.HOPSWORKS_PROJECT_NAME }}
+        OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}
+        LOCATION_LAT=${{ secrets.LOCATION_LAT }}
+        LOCATION_LON=${{ secrets.LOCATION_LON }}
+        LOCATION_CITY=${{ secrets.LOCATION_CITY }}
+        EOF
+
+    - name: Run Feature Pipeline
+      run: |
+        python src/main.py
+      continue-on-error: false
+
+    - name: Verify Feature Store Upload
+      run: |
+        python -c "
+        import os
+        import hopsworks
+        from datetime import datetime
+        
+        print('🔍 Verifying Hopsworks Feature Store Upload...')
+        print('='*70)
+        
+        # Login to Hopsworks
+        project = hopsworks.login(
+            api_key_value=os.getenv('HOPSWORKS_API_KEY'),
+            project=os.getenv('HOPSWORKS_PROJECT_NAME')
+        )
+        
+        print(f'✅ Connected to Project: {project.name}')
+        
+        # Get Feature Store
+        fs = project.get_feature_store()
+        
+        # Check weather features
+        try:
+            weather_fg = fs.get_feature_group('weather_features', version=2)
+            print(f'\n📦 Weather Feature Group:')
+            print(f'   Name: {weather_fg.name}')
+            print(f'   Version: {weather_fg.version}')
+            print(f'   Features: {len(weather_fg.features)}')
+            
+            # Get latest statistics
+            stats = weather_fg.statistics
+            if stats:
+                print(f'   Last Updated: {stats.commit_time if hasattr(stats, \"commit_time\") else \"N/A\"}')
+        except Exception as e:
+            print(f'⚠️  Weather feature group error: {e}')
+        
+        # Check pollutant features
+        try:
+            pollutant_fg = fs.get_feature_group('pollutant_features', version=2)
+            print(f'\n📦 Pollutant Feature Group:')
+            print(f'   Name: {pollutant_fg.name}')
+            print(f'   Version: {pollutant_fg.version}')
+            print(f'   Features: {len(pollutant_fg.features)}')
+        except Exception as e:
+            print(f'⚠️  Pollutant feature group error: {e}')
+        
+        print('\n' + '='*70)
+        print(f'✅ Feature Pipeline Verification Complete - {datetime.now()}')
+        "
+
+    - name: Upload Pipeline Logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: feature-pipeline-logs-${{ github.run_number }}
+        path: |
+          *.log
+          logs/
+        retention-days: 7
+
+    - name: Notify on Failure
+      if: failure()
+      run: |
+        echo "❌ Feature Pipeline Failed"
+        echo "Time: $(date)"
+        echo "Run Number: ${{ github.run_number }}"
+        exit 1

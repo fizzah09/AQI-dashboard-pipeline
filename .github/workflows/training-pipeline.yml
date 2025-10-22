@@ -1,0 +1,238 @@
+name: Training Pipeline - Daily
+
+on:
+  schedule:
+    # Runs every day at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - 'modeling/**'
+      - 'run_training.py'
+      - '.github/workflows/training-pipeline.yml'
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  train-and-register-model:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        if [ -f modeling/requirements.txt ]; then
+          pip install -r modeling/requirements.txt
+        fi
+
+    - name: Create Environment File
+      run: |
+        cat << EOF > .env
+        HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}
+        HOPSWORKS_PROJECT_NAME=${{ secrets.HOPSWORKS_PROJECT_NAME }}
+        OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}
+        LOCATION_LAT=${{ secrets.LOCATION_LAT }}
+        LOCATION_LON=${{ secrets.LOCATION_LON }}
+        LOCATION_CITY=${{ secrets.LOCATION_CITY }}
+        EOF
+
+    - name: Fetch Training Data from Hopsworks
+      run: |
+        python -c "
+        import os
+        import sys
+        from pathlib import Path
+        import hopsworks
+        import pandas as pd
+        
+        print('📥 Fetching Training Data from Hopsworks Feature Store...')
+        print('='*70)
+        
+        # Login to Hopsworks
+        project = hopsworks.login(
+            api_key_value=os.getenv('HOPSWORKS_API_KEY'),
+            project=os.getenv('HOPSWORKS_PROJECT_NAME')
+        )
+        
+        print(f'✅ Connected to Project: {project.name}')
+        
+        # Get Feature Store
+        fs = project.get_feature_store()
+        
+        # Get feature groups
+        weather_fg = fs.get_feature_group('weather_features', version=2)
+        pollutant_fg = fs.get_feature_group('pollutant_features', version=2)
+        
+        print(f'📦 Loading Weather Features...')
+        weather_df = weather_fg.read()
+        print(f'   Loaded: {len(weather_df)} rows')
+        
+        print(f'📦 Loading Pollutant Features...')
+        pollutant_df = pollutant_fg.read()
+        print(f'   Loaded: {len(pollutant_df)} rows')
+        
+        # Merge on timestamp
+        print(f'🔗 Merging datasets...')
+        merged_df = pd.merge(
+            weather_df, 
+            pollutant_df, 
+            on='timestamp', 
+            how='inner',
+            suffixes=('_weather', '_pollutant')
+        )
+        
+        print(f'✅ Merged Dataset: {len(merged_df)} rows, {len(merged_df.columns)} columns')
+        
+        # Save for training
+        Path('data').mkdir(exist_ok=True)
+        merged_df.to_csv('data/ml_training_data_latest.csv', index=False)
+        print(f'💾 Saved to: data/ml_training_data_latest.csv')
+        
+        print('='*70)
+        "
+
+    - name: Run Training Pipeline
+      run: |
+        python run_training.py --data data/ml_training_data_latest.csv --target pollutant_aqi
+
+    - name: Verify Model in Hopsworks Registry
+      run: |
+        python -c "
+        import os
+        import hopsworks
+        from datetime import datetime
+        import json
+        
+        print('🔍 Verifying Model in Hopsworks Model Registry...')
+        print('='*70)
+        
+        # Login to Hopsworks
+        project = hopsworks.login(
+            api_key_value=os.getenv('HOPSWORKS_API_KEY'),
+            project=os.getenv('HOPSWORKS_PROJECT_NAME')
+        )
+        
+        print(f'✅ Connected to Project: {project.name}')
+        
+        # Get Model Registry
+        mr = project.get_model_registry()
+        
+        # List all models
+        all_models = mr.get_models()
+        print(f'\n📋 Total Models in Registry: {len(all_models)}')
+        
+        # Get AQI models
+        aqi_models = [m for m in all_models if 'aqi' in m.name.lower()]
+        
+        if not aqi_models:
+            print('⚠️  No AQI models found in registry!')
+            print('Available models:', [m.name for m in all_models])
+            exit(1)
+        
+        print(f'\n✅ Found {len(aqi_models)} AQI Model(s):')
+        
+        for model in aqi_models[:3]:  # Show up to 3 latest
+            print(f'\n  📊 Model: {model.name}')
+            print(f'     Version: {model.version}')
+            print(f'     Created: {model.created}')
+            
+            if hasattr(model, 'training_metrics') and model.training_metrics:
+                print(f'     Metrics: {json.dumps(model.training_metrics, indent=8)}')
+        
+        # Download latest model to verify
+        latest_model = aqi_models[0]
+        print(f'\n📥 Downloading latest model for verification...')
+        model_dir = latest_model.download()
+        print(f'✅ Model downloaded to: {model_dir}')
+        
+        # Verify model files exist
+        from pathlib import Path
+        model_files = list(Path(model_dir).rglob('*'))
+        print(f'📁 Model contains {len(model_files)} files')
+        
+        print('\n' + '='*70)
+        print(f'✅ Model Registry Verification Complete - {datetime.now()}')
+        "
+
+    - name: Generate Training Report
+      if: success()
+      run: |
+        python -c "
+        import pandas as pd
+        import json
+        from datetime import datetime
+        from pathlib import Path
+        
+        print('📊 Generating Training Report...')
+        
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'run_number': '${{ github.run_number }}',
+            'status': 'success',
+            'metrics': {},
+            'feature_importance': []
+        }
+        
+        # Load metrics if available
+        metrics_file = Path('modeling/evaluation/metrics_summary.csv')
+        if metrics_file.exists():
+            metrics_df = pd.read_csv(metrics_file)
+            report['metrics'] = metrics_df.to_dict('records')
+        
+        # Load feature importance if available
+        importance_file = Path('modeling/evaluation/feature_importance.csv')
+        if importance_file.exists():
+            importance_df = pd.read_csv(importance_file)
+            report['feature_importance'] = importance_df.head(20).to_dict('records')
+        
+        # Save report
+        with open('training_report.json', 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        print('✅ Training Report Generated')
+        print(json.dumps(report, indent=2))
+        "
+
+    - name: Upload Training Artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: training-artifacts-${{ github.run_number }}
+        path: |
+          modeling/models/
+          modeling/evaluation/
+          training_report.json
+          *.log
+        retention-days: 30
+
+    - name: Upload Model Metrics
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-metrics-${{ github.run_number }}
+        path: |
+          modeling/evaluation/metrics_summary.csv
+          modeling/evaluation/feature_importance.csv
+          training_report.json
+        retention-days: 90
+
+    - name: Notify on Failure
+      if: failure()
+      run: |
+        echo "❌ Training Pipeline Failed"
+        echo "Time: $(date)"
+        echo "Run Number: ${{ github.run_number }}"
+        exit 1
