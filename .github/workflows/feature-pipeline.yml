@@ -38,12 +38,12 @@ jobs:
     - name: Create Environment File
       run: |
         cat << EOF > .env
-        HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}
-        HOPSWORKS_PROJECT_NAME=${{ secrets.HOPSWORKS_PROJECT_NAME }}
-        OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}
-        LOCATION_LAT=${{ secrets.LOCATION_LAT }}
-        LOCATION_LON=${{ secrets.LOCATION_LON }}
-        LOCATION_CITY=${{ secrets.LOCATION_CITY }}
+        HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
+        HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
+        OPENWEATHER_API_KEY="${{ secrets.OPENWEATHER_API_KEY }}"
+        LOCATION_LAT="${{ secrets.LOCATION_LAT }}"
+        LOCATION_LON="${{ secrets.LOCATION_LON }}"
+        LOCATION_CITY="${{ secrets.LOCATION_CITY }}"
         EOF
 
     - name: Run Feature Pipeline
