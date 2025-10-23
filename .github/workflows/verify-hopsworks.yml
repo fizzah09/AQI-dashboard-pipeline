@@ -29,10 +29,15 @@ jobs:
 
     - name: Create Environment File
       run: |
-        cat << EOF > .env
-        HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
-        HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
-        EOF
+        if [ -n "${{ secrets.AQIDASHBOARD }}" ]; then
+          echo "Using composite secret AQIDASHBOARD to create .env"
+          printf "%s\n" "${{ secrets.AQIDASHBOARD }}" > .env
+        else
+          cat << EOF > .env
+          HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
+          HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
+          EOF
+        fi
 
     - name: Run Hopsworks Verification Script
       run: |

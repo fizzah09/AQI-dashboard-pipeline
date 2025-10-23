@@ -37,14 +37,19 @@ jobs:
 
     - name: Create Environment File
       run: |
-        cat << EOF > .env
-        HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
-        HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
-        OPENWEATHER_API_KEY="${{ secrets.OPENWEATHER_API_KEY }}"
-        LOCATION_LAT="${{ secrets.LOCATION_LAT }}"
-        LOCATION_LON="${{ secrets.LOCATION_LON }}"
-        LOCATION_CITY="${{ secrets.LOCATION_CITY }}"
-        EOF
+        if [ -n "${{ secrets.AQIDASHBOARD }}" ]; then
+          echo "Using composite secret AQIDASHBOARD to create .env"
+          printf "%s\n" "${{ secrets.AQIDASHBOARD }}" > .env
+        else
+          cat << EOF > .env
+          HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
+          HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
+          OPENWEATHER_API_KEY="${{ secrets.OPENWEATHER_API_KEY }}"
+          LOCATION_LAT="${{ secrets.LOCATION_LAT }}"
+          LOCATION_LON="${{ secrets.LOCATION_LON }}"
+          LOCATION_CITY="${{ secrets.LOCATION_CITY }}"
+          EOF
+        fi
 
     - name: Run Feature Pipeline
       run: |
