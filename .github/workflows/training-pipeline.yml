@@ -213,7 +213,7 @@ jobs:
 
     - name: Upload Training Artifacts
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: training-artifacts-${{ github.run_number }}
         path: |
@@ -225,7 +225,7 @@ jobs:
 
     - name: Upload Model Metrics
       if: success()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: model-metrics-${{ github.run_number }}
         path: |

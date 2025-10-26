@@ -108,7 +108,7 @@ jobs:
 
     - name: Upload Pipeline Logs
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: feature-pipeline-logs-${{ github.run_number }}
         path: |
