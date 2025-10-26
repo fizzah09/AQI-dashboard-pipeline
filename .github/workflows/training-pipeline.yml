@@ -44,15 +44,31 @@ jobs:
           echo "Using composite secret AQIDASHBOARD to create .env"
           printf "%s\n" "${{ secrets.AQIDASHBOARD }}" > .env
         else
-          cat << EOF > .env
-          HOPSWORKS_API_KEY="${{ secrets.HOPSWORKS_API_KEY }}"
-          HOPSWORKS_PROJECT_NAME="${{ secrets.HOPSWORKS_PROJECT_NAME }}"
-          OPENWEATHER_API_KEY="${{ secrets.OPENWEATHER_API_KEY }}"
-          LOCATION_LAT="${{ secrets.LOCATION_LAT }}"
-          LOCATION_LON="${{ secrets.LOCATION_LON }}"
-          LOCATION_CITY="${{ secrets.LOCATION_CITY }}"
-          EOF
+          echo "HOPSWORKS_API_KEY=\"${{ secrets.HOPSWORKS_API_KEY }}\"" > .env
+          echo "HOPSWORKS_PROJECT_NAME=\"${{ secrets.HOPSWORKS_PROJECT_NAME }}\"" >> .env
+          echo "OPENWEATHER_API_KEY=\"${{ secrets.OPENWEATHER_API_KEY }}\"" >> .env
+          echo "LOCATION_LAT=\"${{ secrets.LOCATION_LAT }}\"" >> .env
+          echo "LOCATION_LON=\"${{ secrets.LOCATION_LON }}\"" >> .env
+          echo "LOCATION_CITY=\"${{ secrets.LOCATION_CITY }}\"" >> .env
         fi
+
+    - name: CI debug - env & secret presence
+      run: |
+        echo "CI debug: checking .env and secret presence (values redacted)"
+        echo "-- .env keys (redacted) --"
+        if [ -f .env ]; then
+          sed -n '1,200p' .env | sed -E 's/=.*/=REDACTED/' || true
+        else
+          echo ".env not found"
+        fi
+        echo "-- secret presence checks --"
+        if [ -n "${{ secrets.AQIDASHBOARD }}" ]; then echo "AQIDASHBOARD=present"; else echo "AQIDASHBOARD=missing"; fi
+        if [ -n "${{ secrets.HOPSWORKS_API_KEY }}" ]; then echo "HOPSWORKS_API_KEY=present"; else echo "HOPSWORKS_API_KEY=missing"; fi
+        if [ -n "${{ secrets.HOPSWORKS_PROJECT_NAME }}" ]; then echo "HOPSWORKS_PROJECT_NAME=present"; else echo "HOPSWORKS_PROJECT_NAME=missing"; fi
+        if [ -n "${{ secrets.OPENWEATHER_API_KEY }}" ]; then echo "OPENWEATHER_API_KEY=present"; else echo "OPENWEATHER_API_KEY=missing"; fi
+        if [ -n "${{ secrets.LOCATION_LAT }}" ]; then echo "LOCATION_LAT=present"; else echo "LOCATION_LAT=missing"; fi
+        if [ -n "${{ secrets.LOCATION_LON }}" ]; then echo "LOCATION_LON=present"; else echo "LOCATION_LON=missing"; fi
+        if [ -n "${{ secrets.LOCATION_CITY }}" ]; then echo "LOCATION_CITY=present"; else echo "LOCATION_CITY=missing"; fi
 
     - name: Fetch Training Data from Hopsworks
       run: |
